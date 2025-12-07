@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Commands package="{a1b2c3d4-1111-2222-3333-444455556666}">
+    <Buttons>
+      <Button guid="{a1b2c3d4-1111-2222-3333-444455556666}" id="0x0100" priority="0x0100" type="Button">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS"/>
+        <Strings><ButtonText>Ollama Agent: Hello</ButtonText></Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+</CommandTable>
