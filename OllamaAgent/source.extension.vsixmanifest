@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="OllamaAgent.fe79a1cf-b82c-49f2-8f71-fd75305129fc" Version="1.0" Language="en-US" Publisher="Garik Mikayelyan" />
+    <Identity Id="OllamaAgent.1b9b5835-5e04-4315-a2c5-cb378d68f846" Version="1.0" Language="en-US" Publisher="Garik Mikayelyan" />
     <DisplayName>OllamaAgent</DisplayName>
     <Description>Empty VSIX Project.</Description>
   </Metadata>
