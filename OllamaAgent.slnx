@@ -1,11 +1,1 @@
-<Solution>
-  <Configurations>
-    <Platform Name="Any CPU" />
-    <Platform Name="arm64" />
-    <Platform Name="x86" />
-  </Configurations>
-  <Project Path="OllamaAgent/OllamaAgent.csproj" Id="29954894-0e4e-4d67-af16-a4a76e3380bf">
-    <Platform Solution="*|arm64" Project="arm64" />
-    <Platform Solution="*|x86" Project="x86" />
-  </Project>
-</Solution>
+<Solution />
