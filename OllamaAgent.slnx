@@ -8,5 +8,6 @@
     <Platform Solution="*|arm64" Project="arm64" />
     <Platform Solution="*|x86" Project="x86" />
   </Project>
+  <Project Path="OllamaCommunicationService.Tests/OllamaCommunicationService.Tests.csproj" Id="618b26c6-f0a6-44c1-bf11-b86a72fba6a9" />
   <Project Path="OllamaCommunicationService/OllamaCommunicationService.csproj" Id="c7fcda05-b1db-4235-b07b-a36caa15cfe9" />
 </Solution>
