@@ -1,5 +1,6 @@
 ﻿using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using OllamaCommunicationService;
 using System;
 using System.ComponentModel.Design;
 using System.Globalization;
@@ -89,8 +90,8 @@ namespace OllamaAgent
         private void Execute(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            string message = "Agent is analyzing...";
             string title = "Ollama Agent";
+            string message = "Agent is analyzing...\n" + new OllamaManager().GetOllamaResponse(prompt: "Hello");
 
             // Show a message box to prove we were here
             VsShellUtilities.ShowMessageBox(
