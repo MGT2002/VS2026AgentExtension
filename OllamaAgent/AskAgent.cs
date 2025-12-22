@@ -1,5 +1,6 @@
 ﻿using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
 using OllamaCommunicationService;
 using System;
 using System.ComponentModel.Design;
@@ -30,21 +31,28 @@ namespace OllamaAgent
         /// </summary>
         private readonly AsyncPackage package;
 
+        private OllamaManager ollamaManager;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="AskAgent"/> class.
         /// Adds our command handlers for menu (commands must exist in the command table file)
         /// </summary>
         /// <param name="package">Owner package, not null.</param>
         /// <param name="commandService">Command service to add command to, not null.</param>
-        private AskAgent(AsyncPackage package, OleMenuCommandService commandService)
+        private AskAgent(
+            AsyncPackage package,
+            OleMenuCommandService commandService,
+            OllamaManager ollamaManager = default)
         {
             this.package = package ?? throw new ArgumentNullException(nameof(package));
             commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
 
             var menuCommandID = new CommandID(CommandSet, CommandId);
-            var menuItem = new MenuCommand(this.Execute, menuCommandID);
-            commandService.AddCommand(menuItem);
-        }
+            //var menuItem = new MenuCommand(this.Execute, menuCommandID);
+            var menuItemAsync = new OleMenuCommand(async (sender, e) => await ExecuteAsync(), menuCommandID);
+            commandService.AddCommand(menuItemAsync);
+            this.ollamaManager = ollamaManager;
+        }    
 
         /// <summary>
         /// Gets the instance of the command.
@@ -54,6 +62,8 @@ namespace OllamaAgent
             get;
             private set;
         }
+
+        public static OllamaManager OllamaManager => Instance.ollamaManager;
 
         /// <summary>
         /// Gets the service provider from the owner package.
@@ -77,7 +87,7 @@ namespace OllamaAgent
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
 
             OleMenuCommandService commandService = await package.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
-            Instance = new AskAgent(package, commandService);
+            Instance = new AskAgent(package, commandService, new OllamaManager());
         }
 
         /// <summary>
@@ -91,7 +101,31 @@ namespace OllamaAgent
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             string title = "Ollama Agent";
-            string message = "Agent is analyzing...\n" + new OllamaManager().GetOllamaResponse(prompt: "Hello");
+            string message = "Agent is analyzing...\n";
+            
+            var task = ollamaManager.ExplainCodeAsync("int i = 12;");
+            task.Wait();
+
+            message += task.Result;
+
+            // Show a message box to prove we were here
+            VsShellUtilities.ShowMessageBox(
+                this.package,
+                message,
+                title,
+                OLEMSGICON.OLEMSGICON_INFO,
+                OLEMSGBUTTON.OLEMSGBUTTON_OK,
+                OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+        }
+
+        private async Task ExecuteAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            string title = "Ollama Agent";
+            string message = "Agent is analyzing...\n";
+
+            message += await ollamaManager.ExplainCodeAsync("int i = 12;");
 
             // Show a message box to prove we were here
             VsShellUtilities.ShowMessageBox(

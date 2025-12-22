@@ -4,16 +4,17 @@
     public sealed class OllamaManagerTests
     {
         [TestMethod]
-        public void GetOllamaResponse()
+        public async Task ExplainCodeAsync()
         {
             // Arrange
             var ollamaManager = new OllamaManager();
             var prompt = "Test prompt";
             // Act
-            var response = ollamaManager.GetOllamaResponse(prompt);
+            var response = await ollamaManager.ExplainCodeAsync(prompt);
             // Assert
             Assert.IsNotNull(response);
-            Assert.Contains(prompt, response);
+            
+            Console.WriteLine("Ollama response: " + response);
         }
     }
 }
