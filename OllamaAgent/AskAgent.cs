@@ -125,7 +125,7 @@ namespace OllamaAgent
             string title = "Ollama Agent";
             string message = "Agent is analyzing...\n";
 
-            message += await ollamaManager.ExplainCodeAsync("int i = 12;");
+            message += await ollamaManager.ExplainCodeAsync("class A { int a = 56; }");
 
             // Show a message box to prove we were here
             VsShellUtilities.ShowMessageBox(

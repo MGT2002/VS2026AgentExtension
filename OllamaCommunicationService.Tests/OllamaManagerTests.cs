@@ -8,7 +8,7 @@
         {
             // Arrange
             var ollamaManager = new OllamaManager();
-            var prompt = "Test prompt";
+            var prompt = "int a = 12";
             // Act
             var response = await ollamaManager.ExplainCodeAsync(prompt);
             // Assert

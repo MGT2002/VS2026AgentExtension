@@ -8,18 +8,34 @@ namespace OllamaCommunicationService
 {
     public class OllamaManager
     {
-        private readonly HttpClient _client = new HttpClient { BaseAddress = new Uri("http://localhost:11434") };
-        private const string Model = "deepseek-coder:latest";
+        public const string ModelWeak = "deepseek-coder:latest";
+        public const string ModelSmart = "llama3.1:latest";
+        private readonly HttpClient client = new HttpClient { BaseAddress = new Uri("http://localhost:11434") };
 
-        public async Task<string> ExplainCodeAsync(string code)
+        private readonly ResponseQuality defaultResponseQuality;
+
+        public string Model { get; set; }
+
+        public OllamaManager(ResponseQuality defaultResponseQuality = null, string model = null)
+        {
+            this.defaultResponseQuality = defaultResponseQuality ?? ResponseQuality.VeryShort;
+            Model = model ?? ModelSmart;
+        }
+
+        public async Task<string> ExplainCodeAsync(string code, ResponseQuality responseQuality = default)
         {
             if (string.IsNullOrWhiteSpace(code))
                 return "No code selected.";
 
+            if (responseQuality is null)
+            { 
+                responseQuality = defaultResponseQuality;
+            }
+
             var payload = new
             {
                 model = Model,
-                prompt = $"Explain this code clearly and concisely:\n\n{code}",
+                prompt = $"Explain this code.(Give me answer {responseQuality.AiAnswerTypeMessage}):\n\n{code}",
                 stream = false
             };
 
@@ -29,7 +45,7 @@ namespace OllamaCommunicationService
             HttpResponseMessage response;
             try
             {
-                response = await _client.PostAsync("/api/generate", content);
+                response = await client.PostAsync("/api/generate", content);
                 response.EnsureSuccessStatusCode();
             }
             catch (HttpRequestException ex)
@@ -48,6 +64,19 @@ namespace OllamaCommunicationService
             {
                 return "Failed to parse Ollama response.";
             }
+        }
+    }
+
+    public class ResponseQuality
+    {
+        public static ResponseQuality VeryShort = new ResponseQuality("in 2 words");
+        public static ResponseQuality Brief = new ResponseQuality("in 10 words");
+        public static ResponseQuality Detailed = new ResponseQuality("with details");
+
+        public string AiAnswerTypeMessage { get; }
+        private ResponseQuality(string aiMessage)
+        {
+            AiAnswerTypeMessage = aiMessage;
         }
     }
 }
