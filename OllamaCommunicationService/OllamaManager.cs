@@ -45,17 +45,47 @@ namespace OllamaCommunicationService
             return await GenerateResponse(payload);
         }
 
-        public async Task StreamPromptAsync(string prompt, Func<string, Task> onChunkAsync, CancellationToken cancellationToken = default)
+        public Task StreamExplainCodeAsync(
+            string code,
+            Func<string, Task> onChunkAsync,
+            ResponseQuality responseQuality = default,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (responseQuality is null)
+            {
+                responseQuality = defaultResponseQuality;
+            }
+
+            var explainPrompt = "Explain this code:\n\n" + code;
+            return StreamPromptAsync(explainPrompt, onChunkAsync, responseQuality, cancellationToken);
+        }
+
+        public async Task StreamPromptAsync(
+            string prompt,
+            Func<string, Task> onChunkAsync,
+            ResponseQuality responseQuality = default,
+            CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 return;
             }
 
+            if (responseQuality is null)
+            {
+                responseQuality = defaultResponseQuality;
+            }
+
             var payload = new
             {
                 model = Model,
                 prompt = prompt,
+                system = $"Respond {responseQuality.AiAnswerTypeMessage}.",
                 stream = true
             };
 
