@@ -1,6 +1,8 @@
 using OllamaCommunicationService;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,7 +18,9 @@ namespace OllamaAgent
         private readonly TextBox transcriptTextBox;
         private readonly TextBox inputTextBox;
         private readonly Button sendButton;
+        private readonly Button cancelButton;
         private readonly Button clearButton;
+        private CancellationTokenSource activeRequestCts;
 
         public OllamaChatControl(OllamaManager ollamaManager)
         {
@@ -85,7 +89,16 @@ namespace OllamaAgent
                 Height = 30,
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
-            sendButton.Click += async (s, e) => await SendCurrentInputAsync();
+            sendButton.Click += (s, e) => _ = QueueSendAsync();
+
+            cancelButton = new Button
+            {
+                Content = "Cancel",
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsEnabled = false
+            };
+            cancelButton.Click += (s, e) => activeRequestCts?.Cancel();
 
             clearButton = new Button
             {
@@ -99,9 +112,13 @@ namespace OllamaAgent
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             Grid.SetColumn(sendButton, 0);
-            Grid.SetColumn(clearButton, 2);
+            Grid.SetColumn(cancelButton, 2);
+            Grid.SetColumn(clearButton, 4);
             actionPanel.Children.Add(sendButton);
+            actionPanel.Children.Add(cancelButton);
             actionPanel.Children.Add(clearButton);
             Grid.SetRow(actionPanel, 3);
 
@@ -113,38 +130,59 @@ namespace OllamaAgent
             Content = root;
         }
 
-        private async Task SendCurrentInputAsync()
+        private Task QueueSendAsync()
+        {
+            return ThreadHelper.JoinableTaskFactory.RunAsync(() => SendCurrentInputAsync()).Task;
+        }
+
+        private Task SendCurrentInputAsync()
         {
             var prompt = inputTextBox.Text;
             if (string.IsNullOrWhiteSpace(prompt))
             {
-                return;
+                return Task.CompletedTask;
             }
 
             inputTextBox.Clear();
             AppendMessage("You", prompt);
-            await SendToOllamaAsync(prompt);
+            return SendToOllamaAsync(prompt);
         }
 
-        private async Task SendToOllamaAsync(string prompt)
+        private Task SendToOllamaAsync(string prompt)
         {
-            sendButton.IsEnabled = false;
-            clearButton.IsEnabled = false;
+            SetBusyUi(isBusy: true);
+            activeRequestCts = new CancellationTokenSource();
 
-            try
+            AppendMessageHeader("Ollama");
+
+            var streamTask = ollamaManager.StreamPromptAsync(
+                    prompt,
+                    chunk => Dispatcher.InvokeAsync(() => AppendResponseChunk(chunk)).Task,
+                    activeRequestCts.Token);
+
+            return streamTask.ContinueWith(t =>
             {
-                var response = await ollamaManager.ExplainCodeAsync(prompt, ResponseQuality.Detailed);
-                AppendMessage("Ollama", response);
-            }
-            catch (Exception ex)
-            {
-                AppendMessage("Error", ex.Message);
-            }
-            finally
-            {
-                sendButton.IsEnabled = true;
-                clearButton.IsEnabled = true;
-            }
+                Dispatcher.Invoke(() =>
+                {
+                    if (t.IsCanceled || IsCancellation(t.Exception))
+                    {
+                        AppendResponseChunk("\r\n[Cancelled]");
+                    }
+                    else if (t.Exception != null)
+                    {
+                        AppendResponseChunk("\r\n[Error] " + t.Exception.GetBaseException().Message);
+                    }
+
+                    EndResponseMessage();
+                    if (activeRequestCts != null)
+                    {
+                        activeRequestCts.Dispose();
+                        activeRequestCts = null;
+                    }
+
+                    SetBusyUi(isBusy: false);
+                });
+            }, TaskScheduler.Default);
         }
 
         private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -162,13 +200,59 @@ namespace OllamaAgent
             transcriptTextBox.ScrollToEnd();
         }
 
-        private async void InputTextBox_KeyDown(object sender, KeyEventArgs e)
+        private void AppendMessageHeader(string author)
+        {
+            transcriptTextBox.AppendText(author + ":\r\n");
+            transcriptTextBox.ScrollToEnd();
+        }
+
+        private void AppendResponseChunk(string chunk)
+        {
+            transcriptTextBox.AppendText(chunk);
+            transcriptTextBox.ScrollToEnd();
+        }
+
+        private void EndResponseMessage()
+        {
+            transcriptTextBox.AppendText("\r\n\r\n");
+            transcriptTextBox.ScrollToEnd();
+        }
+
+        private void SetBusyUi(bool isBusy)
+        {
+            sendButton.IsEnabled = !isBusy;
+            cancelButton.IsEnabled = isBusy;
+            clearButton.IsEnabled = !isBusy;
+            modelComboBox.IsEnabled = !isBusy;
+            inputTextBox.IsEnabled = !isBusy;
+        }
+
+        private void InputTextBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
                 e.Handled = true;
-                await SendCurrentInputAsync();
+                _ = QueueSendAsync();
             }
+        }
+
+        private static bool IsCancellation(AggregateException exception)
+        {
+            if (exception == null)
+            {
+                return false;
+            }
+
+            var flattened = exception.Flatten();
+            foreach (var inner in flattened.InnerExceptions)
+            {
+                if (inner is OperationCanceledException)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

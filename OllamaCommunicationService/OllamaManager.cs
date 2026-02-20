@@ -1,8 +1,11 @@
-﻿using System;
+using System;
+using System.IO;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json;  // Add NuGet: Install-Package Newtonsoft.Json -Version 13.0.3
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace OllamaCommunicationService
 {
@@ -40,6 +43,72 @@ namespace OllamaCommunicationService
                 stream = false
             };
             return await GenerateResponse(payload);
+        }
+
+        public async Task StreamPromptAsync(string prompt, Func<string, Task> onChunkAsync, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                return;
+            }
+
+            var payload = new
+            {
+                model = Model,
+                prompt = prompt,
+                stream = true
+            };
+
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "/api/generate"))
+            {
+                request.Content = content;
+
+                using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                {
+                    response.EnsureSuccessStatusCode();
+
+                    using (cancellationToken.Register(() => response.Dispose()))
+                    using (var stream = await response.Content.ReadAsStreamAsync())
+                    using (var reader = new StreamReader(stream))
+                    {
+                        while (!reader.EndOfStream)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            var line = await reader.ReadLineAsync();
+                            if (string.IsNullOrWhiteSpace(line))
+                            {
+                                continue;
+                            }
+
+                            JObject chunkObj;
+                            try
+                            {
+                                chunkObj = JObject.Parse(line);
+                            }
+                            catch
+                            {
+                                continue;
+                            }
+
+                            var chunk = chunkObj["response"]?.ToString();
+                            if (!string.IsNullOrEmpty(chunk) && onChunkAsync != null)
+                            {
+                                await onChunkAsync(chunk);
+                            }
+
+                            var doneToken = chunkObj["done"];
+                            if (doneToken != null && doneToken.Type == JTokenType.Boolean && doneToken.Value<bool>())
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private async Task<string> GenerateResponse(object payload)
