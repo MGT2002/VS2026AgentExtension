@@ -1,11 +1,9 @@
-﻿using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using Microsoft.VisualStudio.Threading;
+using Microsoft.VisualStudio.TextManager.Interop;
 using OllamaCommunicationService;
 using System;
 using System.ComponentModel.Design;
-using System.Globalization;
-using System.Threading;
 using System.Threading.Tasks;
 using Task = System.Threading.Tasks.Task;
 
@@ -30,8 +28,7 @@ namespace OllamaAgent
         /// VS Package that provides this command, not null.
         /// </summary>
         private readonly AsyncPackage package;
-
-        private OllamaManager ollamaManager;
+        private readonly OllamaManager ollamaManager;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AskAgent"/> class.
@@ -48,33 +45,18 @@ namespace OllamaAgent
             commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
 
             var menuCommandID = new CommandID(CommandSet, CommandId);
-            //var menuItem = new MenuCommand(this.Execute, menuCommandID);
             var menuItemAsync = new OleMenuCommand(async (sender, e) => await ExecuteAsync(), menuCommandID);
             commandService.AddCommand(menuItemAsync);
+
             this.ollamaManager = ollamaManager;
-        }    
+        }
 
         /// <summary>
         /// Gets the instance of the command.
         /// </summary>
-        public static AskAgent Instance
-        {
-            get;
-            private set;
-        }
+        public static AskAgent Instance { get; private set; }
 
         public static OllamaManager OllamaManager => Instance.ollamaManager;
-
-        /// <summary>
-        /// Gets the service provider from the owner package.
-        /// </summary>
-        private Microsoft.VisualStudio.Shell.IAsyncServiceProvider ServiceProvider
-        {
-            get
-            {
-                return this.package;
-            }
-        }
 
         /// <summary>
         /// Initializes the singleton instance of the command.
@@ -82,59 +64,85 @@ namespace OllamaAgent
         /// <param name="package">Owner package, not null.</param>
         public static async Task InitializeAsync(AsyncPackage package)
         {
-            // Switch to the main thread - the call to AddCommand in AskAgent's constructor requires
-            // the UI thread.
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
 
             OleMenuCommandService commandService = await package.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
-            Instance = new AskAgent(package, commandService, new OllamaManager());
-        }
-
-        /// <summary>
-        /// This function is the callback used to execute the command when the menu item is clicked.
-        /// See the constructor to see how the menu item is associated with this function using
-        /// OleMenuCommandService service and MenuCommand class.
-        /// </summary>
-        /// <param name="sender">Event sender.</param>
-        /// <param name="e">Event args.</param>
-        private void Execute(object sender, EventArgs e)
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            string title = "Ollama Agent";
-            string message = "Agent is analyzing...\n";
-            
-            var task = ollamaManager.ExplainCodeAsync("int i = 12;");
-            task.Wait();
-
-            message += task.Result;
-
-            // Show a message box to prove we were here
-            VsShellUtilities.ShowMessageBox(
-                this.package,
-                message,
-                title,
-                OLEMSGICON.OLEMSGICON_INFO,
-                OLEMSGBUTTON.OLEMSGBUTTON_OK,
-                OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+            Instance = new AskAgent(package, commandService, new OllamaManager(model: OllamaManager.ModelSmart));
         }
 
         private async Task ExecuteAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-            string title = "Ollama Agent";
+            const string title = "Ollama Agent";
             string message = "Agent is analyzing...\n";
 
-            message += await ollamaManager.ExplainCodeAsync("class A { int a = 56; }");
+            string selectedCode = await GetSelectedCodeAsync();
+            message += selectedCode + "\n\n";
+            if (string.IsNullOrWhiteSpace(selectedCode))
+            {
+                message += "No code selected.";
+            }
+            else
+            {
+                message += await ollamaManager.ExplainCodeAsync(selectedCode);
+            }
 
-            // Show a message box to prove we were here
             VsShellUtilities.ShowMessageBox(
-                this.package,
+                package,
                 message,
                 title,
                 OLEMSGICON.OLEMSGICON_INFO,
                 OLEMSGBUTTON.OLEMSGBUTTON_OK,
                 OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+        }
+
+        private async Task<string> GetSelectedCodeAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var textManager = await package.GetServiceAsync(typeof(SVsTextManager)) as IVsTextManager;
+            if (textManager == null)
+            {
+                return null;
+            }
+
+            if (textManager.GetActiveView(1, null, out IVsTextView activeView) != 0 || activeView == null)
+            {
+                return null;
+            }
+
+            if (activeView.GetSelection(out int startLine, out int startColumn, out int endLine, out int endColumn) != 0)
+            {
+                return null;
+            }
+
+            if (startLine > endLine)
+            { 
+                var t = startLine;
+                startLine = endLine;
+                endLine = t;
+                t = startColumn;
+                startColumn = endColumn;
+                endColumn = t;
+            }
+
+            if (startLine == endLine && startColumn == endColumn)
+            {
+                return null;
+            }
+
+            if (activeView.GetBuffer(out IVsTextLines lines) != 0 || lines == null)
+            {
+                return null;
+            }
+
+            if (lines.GetLineText(startLine, startColumn, endLine, endColumn, out string selectedText) != 0)
+            {
+                return null;
+            }
+
+            return selectedText;
         }
     }
 }

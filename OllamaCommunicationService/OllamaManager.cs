@@ -10,6 +10,7 @@ namespace OllamaCommunicationService
     {
         public const string ModelWeak = "deepseek-coder:latest";
         public const string ModelSmart = "llama3.1:latest";
+        public const string ModelMedium = "phi3:mini";
         private readonly HttpClient client = new HttpClient { BaseAddress = new Uri("http://localhost:11434") };
 
         private readonly ResponseQuality defaultResponseQuality;
@@ -28,7 +29,7 @@ namespace OllamaCommunicationService
                 return "No code selected.";
 
             if (responseQuality is null)
-            { 
+            {
                 responseQuality = defaultResponseQuality;
             }
 
@@ -38,7 +39,11 @@ namespace OllamaCommunicationService
                 prompt = $"Explain this code.(Give me answer {responseQuality.AiAnswerTypeMessage}):\n\n{code}",
                 stream = false
             };
+            return await GenerateResponse(payload);
+        }
 
+        private async Task<string> GenerateResponse(object payload)
+        {
             var json = JsonConvert.SerializeObject(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
