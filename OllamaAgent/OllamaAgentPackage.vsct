@@ -59,6 +59,13 @@
           <ButtonText>Ask Ollama Agent</ButtonText>
         </Strings>
       </Button>
+      <Button guid="guidOllamaAgentPackageCmdSet" id="OpenChatWindowId" priority="0x0110" type="Button">
+        <Parent guid="guidOllamaAgentPackageCmdSet" id="MyMenuGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Open Ollama Chat</ButtonText>
+        </Strings>
+      </Button>
     </Buttons>
 
     <!--The bitmaps section is used to define the bitmaps that are used for the commands.-->
@@ -80,6 +87,7 @@
     <GuidSymbol name="guidOllamaAgentPackageCmdSet" value="{3915f1f5-2f21-496a-a823-f802a49149cb}">
       <IDSymbol name="MyMenuGroup" value="0x1020" />
       <IDSymbol name="AskAgentId" value="0x0100" />
+      <IDSymbol name="OpenChatWindowId" value="0x0101" />
     </GuidSymbol>
 
     <GuidSymbol name="guidImages" value="{047bf42f-b17c-4f30-bb40-b66dcdcccc42}" >

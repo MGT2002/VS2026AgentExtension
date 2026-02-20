@@ -26,6 +26,7 @@ namespace OllamaAgent
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [Guid(OllamaAgentPackage.PackageGuidString)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
+    [ProvideToolWindow(typeof(OllamaChatToolWindow))]
     public sealed class OllamaAgentPackage : AsyncPackage
     {
         /// <summary>
@@ -48,6 +49,7 @@ namespace OllamaAgent
             // Do any initialization that requires the UI thread after switching to the UI thread.
             await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
             await AskAgent.InitializeAsync(this);
+            await OpenChatWindowCommand.InitializeAsync(this);
         }
 
         #endregion
