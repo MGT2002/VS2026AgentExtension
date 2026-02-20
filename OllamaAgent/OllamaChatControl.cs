@@ -47,8 +47,8 @@ namespace OllamaAgent
             buttonStyle.Setters.Add(new Setter(ForegroundProperty, Brushes.White));
             buttonStyle.Setters.Add(new Setter(BorderBrushProperty, Brushes.Transparent));
             var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
-            disabledTrigger.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(Color.FromRgb(120, 120, 120))));
-            disabledTrigger.Setters.Add(new Setter(ForegroundProperty, Brushes.White));
+            disabledTrigger.Setters.Add(new Setter(BackgroundProperty, Brushes.DimGray));
+            disabledTrigger.Setters.Add(new Setter(ForegroundProperty, new SolidColorBrush(Color.FromRgb(80, 80, 80))));
             buttonStyle.Triggers.Add(disabledTrigger);
 
             var modelPanel = new StackPanel
@@ -108,7 +108,7 @@ namespace OllamaAgent
                     nameof(ResponseQuality.Brief),
                     nameof(ResponseQuality.Detailed)
                 },
-                SelectedIndex = 2
+                SelectedIndex = 0
             };
             qualityRow.Children.Add(qualityLabel);
             qualityRow.Children.Add(qualityComboBox);
