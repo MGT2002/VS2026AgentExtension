@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.TextManager.Interop;
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -14,6 +15,15 @@ namespace OllamaAgent
 {
     public class OllamaChatControl : UserControl
     {
+        private sealed class ContextEntry
+        {
+            public string Role { get; set; }
+            public string Text { get; set; }
+        }
+
+        private const int MaxContextEntries = 24;
+        private const int MaxContextCharacters = 12000;
+
         private readonly OllamaManager ollamaManager;
         private readonly ComboBox modelComboBox;
         private readonly ComboBox qualityComboBox;
@@ -23,12 +33,16 @@ namespace OllamaAgent
         private readonly Button explainButton;
         private readonly Button cancelButton;
         private readonly Button clearButton;
+        private readonly Button clearContextButton;
+        private readonly Button contextInfoButton;
         private CancellationTokenSource activeRequestCts;
         private readonly Style buttonStyle;
+        private readonly List<ContextEntry> contextEntries;
 
         public OllamaChatControl(OllamaManager ollamaManager)
         {
             this.ollamaManager = ollamaManager ?? throw new ArgumentNullException(nameof(ollamaManager));
+            contextEntries = new List<ContextEntry>();
 
             var root = new Grid
             {
@@ -183,7 +197,29 @@ namespace OllamaAgent
             };
             clearButton.Click += (s, e) => transcriptTextBox.Clear();
 
+            clearContextButton = new Button
+            {
+                Content = "Clear Context",
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Style = buttonStyle
+            };
+            clearContextButton.Click += (s, e) => ClearContext();
+
+            contextInfoButton = new Button
+            {
+                Content = "Context Info",
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Style = buttonStyle
+            };
+            contextInfoButton.Click += (s, e) => AppendContextInfo();
+
             var actionPanel = new Grid();
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -195,10 +231,14 @@ namespace OllamaAgent
             Grid.SetColumn(explainButton, 2);
             Grid.SetColumn(cancelButton, 4);
             Grid.SetColumn(clearButton, 6);
+            Grid.SetColumn(clearContextButton, 8);
+            Grid.SetColumn(contextInfoButton, 10);
             actionPanel.Children.Add(sendButton);
             actionPanel.Children.Add(explainButton);
             actionPanel.Children.Add(cancelButton);
             actionPanel.Children.Add(clearButton);
+            actionPanel.Children.Add(clearContextButton);
+            actionPanel.Children.Add(contextInfoButton);
             Grid.SetRow(actionPanel, 3);
 
             root.Children.Add(modelPanel);
@@ -229,7 +269,11 @@ namespace OllamaAgent
 
             inputTextBox.Clear();
             AppendMessage("You", prompt);
-            return SendToOllamaAsync(prompt, GetSelectedResponseQuality());
+            AddContextEntry("User", prompt);
+            var result = SendToOllamaAsync(prompt, GetSelectedResponseQuality(), out var finalMessage);
+            //AppendMessage("Context", finalMessage);
+
+            return result;
         }
 
         private Task ExplainCurrentInputAsync()
@@ -243,19 +287,25 @@ namespace OllamaAgent
             }
 
             AppendMessage("You", code);
+            AddContextEntry("User", code);
             return ExplainCodeStreamAsync(code, GetSelectedResponseQuality());
         }
 
-        private Task SendToOllamaAsync(string prompt, ResponseQuality responseQuality)
+        private Task SendToOllamaAsync(string prompt, ResponseQuality responseQuality, out string message)
         {
             SetBusyUi(isBusy: true);
             activeRequestCts = new CancellationTokenSource();
+            var responseBuilder = new StringBuilder();
 
             AppendMessageHeader("Ollama");
 
             var streamTask = ollamaManager.StreamPromptAsync(
-                    prompt,
-                    chunk => Dispatcher.InvokeAsync(() => AppendResponseChunk(chunk)).Task,
+                    message = BuildPromptWithContext(prompt),
+                    chunk => Dispatcher.InvokeAsync(() =>
+                    {
+                        responseBuilder.Append(chunk);
+                        AppendResponseChunk(chunk);
+                    }).Task,
                     responseQuality,
                     activeRequestCts.Token);
 
@@ -270,6 +320,10 @@ namespace OllamaAgent
                     else if (t.Exception != null)
                     {
                         AppendResponseChunk("\r\n[Error] " + t.Exception.GetBaseException().Message);
+                    }
+                    else
+                    {
+                        AddContextEntry("Assistant", responseBuilder.ToString());
                     }
 
                     EndResponseMessage();
@@ -288,11 +342,16 @@ namespace OllamaAgent
         {
             SetBusyUi(isBusy: true);
             activeRequestCts = new CancellationTokenSource();
+            var responseBuilder = new StringBuilder();
             AppendMessageHeader("Ollama");
 
             var streamTask = ollamaManager.StreamExplainCodeAsync(
                 code,
-                chunk => Dispatcher.InvokeAsync(() => AppendResponseChunk(chunk)).Task,
+                chunk => Dispatcher.InvokeAsync(() =>
+                {
+                    responseBuilder.Append(chunk);
+                    AppendResponseChunk(chunk);
+                }).Task,
                 responseQuality,
                 activeRequestCts.Token);
 
@@ -307,6 +366,10 @@ namespace OllamaAgent
                     else if (t.Exception != null)
                     {
                         AppendResponseChunk("\r\n[Error] " + t.Exception.GetBaseException().Message);
+                    }
+                    else
+                    {
+                        AddContextEntry("Assistant", responseBuilder.ToString());
                     }
 
                     EndResponseMessage();
@@ -423,6 +486,8 @@ namespace OllamaAgent
             sendButton.IsEnabled = !isBusy;
             cancelButton.IsEnabled = isBusy;
             clearButton.IsEnabled = !isBusy;
+            clearContextButton.IsEnabled = !isBusy;
+            contextInfoButton.IsEnabled = !isBusy;
             modelComboBox.IsEnabled = !isBusy;
             qualityComboBox.IsEnabled = !isBusy;
             inputTextBox.IsEnabled = !isBusy;
@@ -455,6 +520,85 @@ namespace OllamaAgent
             }
 
             return false;
+        }
+
+        private void ClearContext()
+        {
+            contextEntries.Clear();
+            AppendMessage("System", "Context cleared.");
+        }
+
+        private void AppendContextInfo()
+        {
+            AppendMessage(
+                "System",
+                "Context entries: " + contextEntries.Count +
+                "\r\nContext chars: " + GetContextCharacterCount() +
+                "\r\nEntry limit: " + MaxContextEntries +
+                "\r\nChar limit: " + MaxContextCharacters);
+        }
+
+        private void AddContextEntry(string role, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            contextEntries.Add(new ContextEntry
+            {
+                Role = role,
+                Text = text
+            });
+
+            TrimContextToLimits();
+        }
+
+        private void TrimContextToLimits()
+        {
+            while (contextEntries.Count > MaxContextEntries)
+            {
+                contextEntries.RemoveAt(0);
+            }
+
+            while (GetContextCharacterCount() > MaxContextCharacters && contextEntries.Count > 1)
+            {
+                contextEntries.RemoveAt(0);
+            }
+        }
+
+        private int GetContextCharacterCount()
+        {
+            var total = 0;
+            foreach (var entry in contextEntries)
+            {
+                total += (entry.Role?.Length ?? 0) + (entry.Text?.Length ?? 0);
+            }
+
+            return total;
+        }
+
+        private string BuildPromptWithContext(string currentPrompt)
+        {
+            if (contextEntries.Count <= 1)
+            {
+                return currentPrompt;
+            }
+
+            var builder = new StringBuilder();
+            builder.AppendLine("Conversation context:");
+
+            for (var i = 0; i < contextEntries.Count - 1; i++)
+            {
+                builder.Append(contextEntries[i].Role);
+                builder.Append(": ");
+                builder.AppendLine(contextEntries[i].Text);
+            }
+
+            builder.AppendLine();
+            builder.Append("User: ");
+            builder.Append(currentPrompt);
+            return builder.ToString();
         }
     }
 }
