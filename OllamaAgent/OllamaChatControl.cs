@@ -31,6 +31,7 @@ namespace OllamaAgent
         private readonly TextBox inputTextBox;
         private readonly Button sendButton;
         private readonly Button explainButton;
+        private readonly Button reviewButton;
         private readonly Button cancelButton;
         private readonly Button clearButton;
         private readonly Button clearContextButton;
@@ -178,6 +179,15 @@ namespace OllamaAgent
             };
             explainButton.Click += (s, e) => _ = QueueExplainAsync();
 
+            reviewButton = new Button
+            {
+                Content = "Code Review",
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Style = buttonStyle
+            };
+            reviewButton.Click += (s, e) => _ = QueueReviewAsync();
+
             cancelButton = new Button
             {
                 Content = "Cancel",
@@ -216,25 +226,38 @@ namespace OllamaAgent
             contextInfoButton.Click += (s, e) => AppendContextInfo();
 
             var actionPanel = new Grid();
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            actionPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actionPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            actionPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            for (var i = 0; i < 7; i++)
+            {
+                actionPanel.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = i % 2 == 0
+                        ? new GridLength(1, GridUnitType.Star)
+                        : new GridLength(8)
+                });
+            }
+
+            Grid.SetRow(sendButton, 0);
             Grid.SetColumn(sendButton, 0);
+            Grid.SetRow(explainButton, 0);
             Grid.SetColumn(explainButton, 2);
-            Grid.SetColumn(cancelButton, 4);
-            Grid.SetColumn(clearButton, 6);
-            Grid.SetColumn(clearContextButton, 8);
-            Grid.SetColumn(contextInfoButton, 10);
+            Grid.SetRow(reviewButton, 0);
+            Grid.SetColumn(reviewButton, 4);
+
+            Grid.SetRow(cancelButton, 1);
+            Grid.SetColumn(cancelButton, 0);
+            Grid.SetRow(clearButton, 1);
+            Grid.SetColumn(clearButton, 2);
+            Grid.SetRow(clearContextButton, 1);
+            Grid.SetColumn(clearContextButton, 4);
+            Grid.SetRow(contextInfoButton, 1);
+            Grid.SetColumn(contextInfoButton, 6);
+
             actionPanel.Children.Add(sendButton);
             actionPanel.Children.Add(explainButton);
+            actionPanel.Children.Add(reviewButton);
             actionPanel.Children.Add(cancelButton);
             actionPanel.Children.Add(clearButton);
             actionPanel.Children.Add(clearContextButton);
@@ -259,6 +282,11 @@ namespace OllamaAgent
             return ThreadHelper.JoinableTaskFactory.RunAsync(() => ExplainCurrentInputAsync()).Task;
         }
 
+        private Task QueueReviewAsync()
+        {
+            return ThreadHelper.JoinableTaskFactory.RunAsync(() => ReviewCurrentInputAsync()).Task;
+        }
+
         private Task SendCurrentInputAsync()
         {
             var prompt = inputTextBox.Text;
@@ -270,10 +298,7 @@ namespace OllamaAgent
             inputTextBox.Clear();
             AppendMessage("You", prompt);
             AddContextEntry("User", prompt);
-            var result = SendToOllamaAsync(prompt, GetSelectedResponseQuality(), out var finalMessage);
-            //AppendMessage("Context", finalMessage);
-
-            return result;
+            return SendToOllamaAsync(prompt, GetSelectedResponseQuality());
         }
 
         private Task ExplainCurrentInputAsync()
@@ -291,7 +316,22 @@ namespace OllamaAgent
             return ExplainCodeStreamAsync(code, GetSelectedResponseQuality());
         }
 
-        private Task SendToOllamaAsync(string prompt, ResponseQuality responseQuality, out string message)
+        private Task ReviewCurrentInputAsync()
+        {
+            string code = null;
+            Dispatcher.Invoke(() => { code = GetSelectedCodeFromEditor(); });
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                AppendMessage("System", "No code selected.");
+                return Task.CompletedTask;
+            }
+
+            AppendMessage("You", code);
+            AddContextEntry("User", code);
+            return ReviewCodeStreamAsync(code, GetSelectedResponseQuality());
+        }
+
+        private Task SendToOllamaAsync(string prompt, ResponseQuality responseQuality)
         {
             SetBusyUi(isBusy: true);
             activeRequestCts = new CancellationTokenSource();
@@ -300,7 +340,7 @@ namespace OllamaAgent
             AppendMessageHeader("Ollama");
 
             var streamTask = ollamaManager.StreamPromptAsync(
-                    message = BuildPromptWithContext(prompt),
+                    BuildPromptWithContext(prompt),
                     chunk => Dispatcher.InvokeAsync(() =>
                     {
                         responseBuilder.Append(chunk);
@@ -308,6 +348,56 @@ namespace OllamaAgent
                     }).Task,
                     responseQuality,
                     activeRequestCts.Token);
+
+            return streamTask.ContinueWith(t =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (t.IsCanceled || IsCancellation(t.Exception))
+                    {
+                        AppendResponseChunk("\r\n[Cancelled]");
+                    }
+                    else if (t.Exception != null)
+                    {
+                        AppendResponseChunk("\r\n[Error] " + t.Exception.GetBaseException().Message);
+                    }
+                    else
+                    {
+                        AddContextEntry("Assistant", responseBuilder.ToString());
+                    }
+
+                    EndResponseMessage();
+                    if (activeRequestCts != null)
+                    {
+                        activeRequestCts.Dispose();
+                        activeRequestCts = null;
+                    }
+
+                    SetBusyUi(isBusy: false);
+                });
+            }, TaskScheduler.Default);
+        }
+
+        private Task ReviewCodeStreamAsync(string code, ResponseQuality responseQuality)
+        {
+            SetBusyUi(isBusy: true);
+            activeRequestCts = new CancellationTokenSource();
+            var responseBuilder = new StringBuilder();
+            AppendMessageHeader("Ollama");
+
+            var reviewPrompt =
+                "Review this code. Focus on bugs, risks, regressions, and missing tests. " +
+                "Be concrete and concise.\n\n" + code;
+
+            var streamTask = ollamaManager.StreamPromptAsync(
+                BuildPromptWithContext(reviewPrompt),
+                chunk => Dispatcher.InvokeAsync(() =>
+                {
+                    responseBuilder.Append(chunk);
+                    AppendResponseChunk(chunk);
+                }).Task,
+                responseQuality,
+                activeRequestCts.Token);
 
             return streamTask.ContinueWith(t =>
             {
@@ -492,6 +582,7 @@ namespace OllamaAgent
             qualityComboBox.IsEnabled = !isBusy;
             inputTextBox.IsEnabled = !isBusy;
             explainButton.IsEnabled = !isBusy;
+            reviewButton.IsEnabled = !isBusy;
         }
 
         private void InputTextBox_KeyDown(object sender, KeyEventArgs e)
